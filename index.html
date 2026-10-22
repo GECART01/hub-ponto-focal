@@ -6,53 +6,70 @@
 </style></head><body>
 <header class="hero"><div class="top"><span class="brand">▦ &nbsp; GECART | SEAD-GO</span><button id="adminBtn" class="adminBtn">♙ Área GECART</button></div><h1>Hub do Ponto Focal</h1><p>Tudo o que você precisa para gerenciar a Carta de Serviços, em um só lugar.</p><input id="search" class="search" placeholder="⌕  O que você está procurando?" aria-label="Pesquisar recursos"></header>
 <main><div id="stats" class="stats"></div><div class="heading"><h2>Acessos rápidos</h2><span id="count" class="muted"></span></div><div id="tools" class="tools" hidden><button id="add">＋ Adicionar recurso</button><button id="newcat">＋ Nova categoria</button><button id="export">⬇ Baixar planilha</button><button id="logout">Sair</button></div><div id="tabs" class="tabs"></div><section id="cards" class="grid"></section></main>
-<footer>GECART / SEAD-GO · Versão de demonstração · As edições ficam armazenadas apenas neste navegador.</footer>
-<dialog id="auth"><form id="authForm"><h2>Área GECART</h2><p id="authNote" class="muted"></p><label>Senha<input id="password" type="password" required minlength="8"></label><menu><button type="button" onclick="auth.close()">Cancelar</button><button class="primary">Continuar</button></menu></form></dialog>
+<footer>GECART | SEAD-GO — Gerência de Gestão da Carta de Serviços</footer>
+<dialog id="auth"><form id="authForm"><h2>Área GECART</h2><p id="authNote" class="muted"></p><label>E-mail do administrador<input id="emailLogin" type="email" autocomplete="username" required></label><label>Senha<input id="password" type="password" autocomplete="current-password" required></label><menu><button type="button" onclick="auth.close()">Cancelar</button><button class="primary">Continuar</button></menu></form></dialog>
 <dialog id="editor"><form id="editForm"><h2 id="editTitle">Adicionar recurso</h2><label>Descrição<input name="title" required></label><label>Categoria<select name="cat" id="catField"></select></label><label>Endereço / contato<input name="value" required></label><label>Observações<textarea name="note"></textarea></label><menu><button type="button" onclick="editor.close()">Cancelar</button><button class="primary">Salvar</button></menu></form></dialog>
 <script>
-const DEFAULT=[
-['link','Endereço Portal Expresso','https://www.go.gov.br/'],
-['link','Acesso ao Portal Goiás (Expresso Aplicações)','https://aplicacoes.expresso.go.gov.br'],
-['link','Expresso Admin Homolog','https://apihomolog.goiasdigital.go.gov.br/admin/home'],
-['link','Expresso Web Homolog','https://wwwhomolog.go.gov.br/'],
-['link','Acesso ao Portal Goiás (Expresso Aplicações) Homolog','https://aplicacoeshomolog.expresso.go.gov.br/'],
-['link','Sharepoint da carta de serviços','https://goiasgovbr.sharepoint.com/sites/cartadeservicos'],
-['email','E-mail da GECART','cartadeservicos.sead@goias.gov.br'],
-['email','Criação de usuários no SAG','atendimento.sti@goias.gov.br'],
-['link','SAG - alteração de link ou resolução de problemas','https://atendimento.sistemas.go.gov.br/'],
-['sei','Processo SEI para indicação de Pontos Focais na Rede','Processo nº 202400005029996'],
-['modelo','Endereço padrão para vincular link de serviço com ID','https://www.go.gov.br/servicos/servico-id/xxxx',"Este link serve apenas para copiar e usar de modelo. Substitua o final 'xxxx' pelo ID do serviço para vincular em outros portais sem quebrar o link se o nome mudar."],
-['telefone','Gabriela - GECART','62 - 99603-8311'],
-['telefone','Gustavo - GECART','62 - 99802-6202'],
-['telefone','Henrique - GECART','62 - 98133-7847']
-].map((r,i)=>({id:i+1,cat:r[0],title:r[1],value:r[2],note:r[3]||''}));
-const $=id=>document.getElementById(id),KEY='gecart_gh_demo_v1',CATKEY='gecart_gh_cats_v1',PASSKEY='gecart_gh_pass_v1';
-let data,extra=[],admin=false,filter='all',editing=null;
-try{data=JSON.parse(localStorage.getItem(KEY))||DEFAULT;extra=JSON.parse(localStorage.getItem(CATKEY))||[]}catch{data=DEFAULT;extra=[]}
-const categories=()=>[['link','Links'],['modelo','Links modelo'],['email','E-mails'],['sei','Processos SEI'],['telefone','Telefones'],...extra];
-const label=c=>categories().find(x=>x[0]===c)?.[1]||c;
-const save=()=>localStorage.setItem(KEY,JSON.stringify(data));
+const BASE='https://gcylucijkhscxspfulfi.supabase.co';
+const PUB='sb_publishable_t27ru6kehFdUoQZWfdm52g_OlbD3Kzb';
+const $=id=>document.getElementById(id);
+let data=[],extra=[],admin=false,filter='all',editing=null,session=null;
+let cats=[['link','Links'],['modelo','Links modelo'],['email','E-mails'],['sei','Processos SEI'],['telefone','Telefones']];
+const label=c=>cats.find(x=>x[0]===c)?.[1]||c;
 const norm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 const el=(tag,klass,text)=>{let n=document.createElement(tag);n.className=klass||'';if(text!==undefined)n.textContent=text;return n};
+function credentials(){return {'apikey':PUB,'Authorization':'Bearer '+(session?.access_token||PUB)}}
+async function api(table,method='GET',body=null,query=''){
+ let opts={method,headers:{...credentials(),'Content-Type':'application/json'}};
+ if(body!==null)opts.body=JSON.stringify(body);
+ if(method==='POST')opts.headers.Prefer='return=representation';
+ const res=await fetch(BASE+'/rest/v1/'+table+(query?'?'+query:''),opts);
+ let txt=await res.text(),v=txt?JSON.parse(txt):null;
+ if(!res.ok)throw Error(v?.message||v?.error_description||('Erro HTTP '+res.status));
+ return v;
+}
+async function load(){
+ try{
+  const [categories,resources]=await Promise.all([
+   api('hub_categories','GET',null,'select=id,name,sort_order&order=sort_order.asc'),
+   api('hub_resources','GET',null,'select=id,category_id,title,address,note,sort_order&order=sort_order.asc,created_at.asc')
+  ]);
+  cats=categories.map(x=>[x.id,x.name]);
+  data=resources.map(x=>({id:x.id,cat:x.category_id,title:x.title,value:x.address,note:x.note||''}));
+  render();$('count').title='Dados sincronizados com o Supabase';
+ }catch(e){$('cards').textContent='Não foi possível carregar os recursos. '+e.message; $('count').textContent='Falha de conexão';}
+}
 function render(){
  const s=norm($('search').value),rows=data.filter(x=>(filter==='all'||x.cat===filter||(filter==='link'&&x.cat==='modelo'))&&norm([x.title,x.value,x.note,label(x.cat)].join(' ')).includes(s));
  $('stats').replaceChildren();for(let [id,name,symbol] of [['link','Links','↗'],['email','E-mails','✉'],['sei','SEI','▤'],['telefone','Telefones','☎']]){
  let n=data.filter(x=>x.cat===id||(id==='link'&&x.cat==='modelo')).length,b=el('button','stat '+(id===filter?'active':''));b.innerHTML='<span>'+symbol+'</span><b>'+n+'</b><small>'+name+'</small>';b.onclick=()=>{filter=id;render()};$('stats').append(b)}
- $('tabs').replaceChildren();for(let [id,name] of [['all','Todos'],...categories()]){let n=data.filter(x=>id==='all'||x.cat===id||(id==='link'&&x.cat==='modelo')).length,b=el('button',filter===id?'active':'',name+' ('+n+')');b.onclick=()=>{filter=id;render()};$('tabs').append(b)}
+ $('tabs').replaceChildren();for(let [id,name] of [['all','Todos'],...cats]){let n=data.filter(x=>id==='all'||x.cat===id||(id==='link'&&x.cat==='modelo')).length,b=el('button',filter===id?'active':'',name+' ('+n+')');b.onclick=()=>{filter=id;render()};$('tabs').append(b)}
  $('count').textContent=rows.length+' de '+data.length+' recursos';$('cards').replaceChildren();
  for(const item of rows){let card=el('article','card'),top=el('div','cardtop'),ico=el('span','icon '+item.cat,({link:'↗',modelo:'⧉',email:'✉',sei:'▤',telefone:'☎'})[item.cat]||'▦'),content=el('div','');content.style.minWidth='0';content.append(el('h3','',item.title),el('p','value',item.value));top.append(ico,content);card.append(top);if(item.note)card.append(el('p','note',item.note));let actions=el('div','actions'),url=null;if(item.cat==='link'||item.cat==='email'||item.cat==='telefone'){url=item.cat==='email'?'mailto:'+item.value:item.cat==='telefone'?'tel:'+item.value.replace(/\D/g,''):item.value}
  let main=el(url?'a':'button','',item.cat==='telefone'?'☎ Ligar':item.cat==='email'?'✉ Enviar e-mail':item.cat==='link'?'↗ Acessar':'⧉ Copiar');if(url){if(item.cat==='link'&&!/^https?:\/\//.test(url))url=null;else{main.href=url;if(item.cat==='link'){main.target='_blank';main.rel='noopener noreferrer'}}}if(!url)main.onclick=()=>copy(item.value);actions.append(main);
  let cp=el('button','','⧉');cp.title='Copiar';cp.onclick=()=>copy(item.value);actions.append(cp);
- if(admin){let edit=el('button','','✎');edit.title='Editar';edit.onclick=()=>openEdit(item);actions.append(edit);let del=el('button','danger','×');del.title='Excluir';del.onclick=()=>{if(confirm('Excluir '+item.title+'?')){data=data.filter(x=>x!==item);save();render()}};actions.append(del)}card.append(actions);$('cards').append(card)}
+ if(admin){let edit=el('button','','✎');edit.title='Editar';edit.onclick=()=>openEdit(item);actions.append(edit);let del=el('button','danger','×');del.title='Excluir';del.onclick=async()=>{if(!confirm('Excluir '+item.title+'?'))return;try{await api('hub_resources','DELETE',null,'id=eq.'+encodeURIComponent(item.id));await load()}catch(e){alert('Não foi possível excluir: '+e.message)}};actions.append(del)}card.append(actions);$('cards').append(card)}
 }
 async function copy(v){try{await navigator.clipboard.writeText(v)}catch{prompt('Copie:',v)}}
 $('search').oninput=render;
-function openEdit(item){if(!admin)return;editing=item;$('editForm').reset();let select=$('catField');select.replaceChildren();for(let [k,v] of categories()){let o=document.createElement('option');o.value=k;o.textContent=v;select.append(o)}if(item){$('editTitle').textContent='Editar recurso';$('editForm').elements.title.value=item.title;$('editForm').elements.cat.value=item.cat;$('editForm').elements.value.value=item.value;$('editForm').elements.note.value=item.note}else $('editTitle').textContent='Adicionar recurso';$('editor').showModal()}
-$('editForm').onsubmit=e=>{e.preventDefault();if(!admin)return;let f=new FormData(e.target),v={id:editing?.id||Date.now(),cat:f.get('cat'),title:String(f.get('title')).trim(),value:String(f.get('value')).trim(),note:String(f.get('note')||'').trim()};if(editing)Object.assign(editing,v);else data.push(v);save();$('editor').close();render()};
-$('adminBtn').onclick=()=>{if(admin){$('tools').scrollIntoView({behavior:'smooth'});return}$('authNote').textContent=localStorage.getItem(PASSKEY)?'Digite a senha cadastrada neste navegador.':'Primeiro acesso: escolha uma senha com no mínimo 8 caracteres (somente demonstração).';$('password').value='';$('auth').showModal()};
-$('authForm').onsubmit=async e=>{e.preventDefault();let p=$('password').value;let arr=new TextEncoder().encode('gecart-demo-'+p),hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',arr))).map(b=>b.toString(16).padStart(2,'0')).join(''),old=localStorage.getItem(PASSKEY);if(old&&old!==hash){alert('Senha incorreta');return}if(!old)localStorage.setItem(PASSKEY,hash);admin=true;$('auth').close();$('tools').hidden=false;render()};
-$('logout').onclick=()=>{admin=false;$('tools').hidden=true;render()};$('add').onclick=()=>openEdit(null);
-$('newcat').onclick=()=>{if(!admin)return;let name=prompt('Nome da nova categoria:');if(!name?.trim())return;extra.push(['cat_'+Date.now(),name.trim()]);localStorage.setItem(CATKEY,JSON.stringify(extra));render()};
+function openEdit(item){if(!admin)return;editing=item;$('editForm').reset();let select=$('catField');select.replaceChildren();for(let [k,v] of cats){let o=document.createElement('option');o.value=k;o.textContent=v;select.append(o)}if(item){$('editTitle').textContent='Editar recurso';$('editForm').elements.title.value=item.title;$('editForm').elements.cat.value=item.cat;$('editForm').elements.value.value=item.value;$('editForm').elements.note.value=item.note}else $('editTitle').textContent='Adicionar recurso';$('editor').showModal()}
+$('editForm').onsubmit=async e=>{e.preventDefault();if(!admin)return;let f=new FormData(e.target),v={category_id:f.get('cat'),title:String(f.get('title')).trim(),address:String(f.get('value')).trim(),note:String(f.get('note')||'').trim()};try{if(editing)await api('hub_resources','PATCH',v,'id=eq.'+encodeURIComponent(editing.id));else await api('hub_resources','POST',v);$('editor').close();await load()}catch(err){alert('Não foi possível salvar: '+err.message)}};
+$('adminBtn').onclick=()=>{if(admin){$('tools').scrollIntoView({behavior:'smooth'});return}$('authNote').textContent='Use a conta de administrador autorizada no Supabase. Não é a senha antiga do navegador.';$('password').value='';$('auth').showModal()};
+$('authForm').onsubmit=async e=>{
+ e.preventDefault();
+ try {
+  const email=$('emailLogin').value.trim(),password=$('password').value;
+  const res=await fetch(BASE+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:PUB,'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+  const token=await res.json();if(!res.ok||!token.access_token)throw Error(token.error_description||token.msg||token.error||'Login inválido');
+  session=token;
+  const rows=await api('hub_admins','GET',null,'select=user_id&user_id=eq.'+encodeURIComponent(token.user.id));
+  if(!rows.length){session=null;throw Error('Esta conta ainda não foi autorizada como administradora da GECART.')}
+  admin=true;$('auth').close();$('tools').hidden=false;$('adminBtn').textContent='⚙ Área GECART';render();
+ }catch(err){alert(err.message)}
+};
+$('logout').onclick=async()=>{if(session){try{await fetch(BASE+'/auth/v1/logout',{method:'POST',headers:{...credentials()}})}catch{} }session=null;admin=false;$('tools').hidden=true;render()};
+$('add').onclick=()=>openEdit(null);
+$('newcat').onclick=async()=>{if(!admin)return;let name=prompt('Nome da nova categoria:');if(!name?.trim())return;try{await api('hub_categories','POST',{id:'cat_'+Date.now(),name:name.trim(),sort_order:100});await load()}catch(e){alert('Não foi possível criar a categoria: '+e.message)}};
 $('export').onclick=()=>{if(!admin)return;let csv='\uFEFF'+[['Tipo','Descrição','Endereço','Observações'],...data.map(x=>[label(x.cat),x.title,x.value,x.note])].map(row=>row.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(';')).join('\r\n');let a=document.createElement('a'),u=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.href=u;a.download='hub-gecart.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
-render();
+$('cards').textContent='Carregando recursos...';load();
 </script></body></html>
