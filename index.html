@@ -18,7 +18,7 @@ let cats=[['link','Links'],['modelo','Links modelo'],['email','E-mails'],['sei',
 const label=c=>cats.find(x=>x[0]===c)?.[1]||c;
 const norm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 const el=(tag,klass,text)=>{let n=document.createElement(tag);n.className=klass||'';if(text!==undefined)n.textContent=text;return n};
-function credentials(){return {'apikey':PUB,'Authorization':'Bearer '+(session?.access_token||PUB)}}
+function credentials(){return session?.access_token ? {'apikey':PUB,'Authorization':'Bearer '+session.access_token} : {'apikey':PUB}}
 async function api(table,method='GET',body=null,query=''){
  let opts={method,headers:{...credentials(),'Content-Type':'application/json'}};
  if(body!==null)opts.body=JSON.stringify(body);
