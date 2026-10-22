@@ -7,12 +7,14 @@
 <header class="hero"><div class="top"><span class="brand">▦ &nbsp; GECART | SEAD-GO</span><button id="adminBtn" class="adminBtn">♙ Área GECART</button></div><h1>Hub do Ponto Focal</h1><p>Tudo o que você precisa para gerenciar a Carta de Serviços, em um só lugar.</p><input id="search" class="search" placeholder="⌕  O que você está procurando?" aria-label="Pesquisar recursos"></header>
 <main><div id="stats" class="stats"></div><div class="heading"><h2>Acessos rápidos</h2><span id="count" class="muted"></span></div><div id="tools" class="tools" hidden><button id="add">＋ Adicionar recurso</button><button id="newcat">＋ Nova categoria</button><button id="export">⬇ Baixar planilha</button><button id="logout">Sair</button></div><div id="tabs" class="tabs"></div><section id="cards" class="grid"></section></main>
 <footer>GECART | SEAD-GO — Gerência de Gestão da Carta de Serviços</footer>
-<dialog id="auth"><form id="authForm"><h2>Área GECART</h2><p id="authNote" class="muted"></p><label>E-mail do administrador<input id="emailLogin" type="email" autocomplete="username" required></label><label>Senha<input id="password" type="password" autocomplete="current-password" required></label><menu><button type="button" onclick="auth.close()">Cancelar</button><button class="primary">Continuar</button></menu></form></dialog>
+<dialog id="auth"><form id="authForm"><h2>Área GECART</h2><p id="authNote" class="muted"></p><label>E-mail do administrador<input id="emailLogin" type="email" autocomplete="username" required></label><label>Senha<input id="password" type="password" autocomplete="current-password" required></label><menu><button type="button" onclick="auth.close()">Cancelar</button><button class="primary">Continuar</button></menu><button id="requestRecovery" type="button" style="border:none;color:#00685b;background:none;text-decoration:underline">Criar ou recuperar senha por e-mail</button></form></dialog>
+<dialog id="resetDialog"><form id="resetForm"><h2>Definir senha da GECART</h2><p class="muted">Escolha uma nova senha para entrar na Área GECART.</p><label>Nova senha<input id="newPassword" type="password" minlength="12" autocomplete="new-password" required></label><label>Confirme a senha<input id="confirmPassword" type="password" minlength="12" autocomplete="new-password" required></label><menu><button class="primary">Salvar senha</button></menu></form></dialog>
 <dialog id="editor"><form id="editForm"><h2 id="editTitle">Adicionar recurso</h2><label>Descrição<input name="title" required></label><label>Categoria<select name="cat" id="catField"></select></label><label>Endereço / contato<input name="value" required></label><label>Observações<textarea name="note"></textarea></label><menu><button type="button" onclick="editor.close()">Cancelar</button><button class="primary">Salvar</button></menu></form></dialog>
 <script>
 const BASE='https://gcylucijkhscxspfulfi.supabase.co';
 const PUB='sb_publishable_t27ru6kehFdUoQZWfdm52g_OlbD3Kzb';
 const $=id=>document.getElementById(id);
+let recoveryToken=null;
 let data=[],extra=[],admin=false,filter='all',editing=null,session=null;
 let cats=[['link','Links'],['modelo','Links modelo'],['email','E-mails'],['sei','Processos SEI'],['telefone','Telefones']];
 const label=c=>cats.find(x=>x[0]===c)?.[1]||c;
@@ -71,5 +73,41 @@ $('logout').onclick=async()=>{if(session){try{await fetch(BASE+'/auth/v1/logout'
 $('add').onclick=()=>openEdit(null);
 $('newcat').onclick=async()=>{if(!admin)return;let name=prompt('Nome da nova categoria:');if(!name?.trim())return;try{await api('hub_categories','POST',{id:'cat_'+Date.now(),name:name.trim(),sort_order:100});await load()}catch(e){alert('Não foi possível criar a categoria: '+e.message)}};
 $('export').onclick=()=>{if(!admin)return;let csv='\uFEFF'+[['Tipo','Descrição','Endereço','Observações'],...data.map(x=>[label(x.cat),x.title,x.value,x.note])].map(row=>row.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(';')).join('\r\n');let a=document.createElement('a'),u=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.href=u;a.download='hub-gecart.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
+
+$('requestRecovery').onclick=async()=>{
+ const email=$('emailLogin').value.trim();
+ if(!email){alert('Informe seu e-mail no campo acima.');return}
+ try{
+  const url=location.origin+location.pathname;
+  const res=await fetch(BASE+'/auth/v1/recover?redirect_to='+encodeURIComponent(url),{method:'POST',headers:{apikey:PUB,'Content-Type':'application/json'},body:JSON.stringify({email})});
+  const obj=await res.json().catch(()=>({}));
+  if(!res.ok)throw Error(obj.msg||obj.error_description||obj.message||obj.error||'Não foi possível enviar o e-mail.');
+  $('auth').close();
+  alert('Se o e-mail estiver cadastrado, você receberá um link para definir a senha. Confira também a pasta Spam.');
+ }catch(e){alert('Não foi possível enviar agora: '+e.message+'. Se o limite de e-mails foi atingido, tente novamente depois.')}
+};
+function handleRecoveryRedirect(){
+ const hash=new URLSearchParams(location.hash.slice(1));
+ const query=new URLSearchParams(location.search);
+ if(hash.get('error')||query.get('error')){alert('O link não pôde ser usado ou expirou. Solicite outro link de recuperação quando o envio de e-mails estiver disponível.');history.replaceState(null,'',location.pathname);return}
+ if(hash.get('type')==='recovery'&&hash.get('access_token')){
+  recoveryToken=hash.get('access_token');
+  history.replaceState(null,'',location.pathname);
+  $('resetDialog').showModal();
+ }
+}
+$('resetForm').onsubmit=async e=>{
+ e.preventDefault();if(!recoveryToken){alert('Link de recuperação ausente ou expirado.');return}
+ const pass=$('newPassword').value;
+ if(pass!==$('confirmPassword').value){alert('As senhas informadas são diferentes.');return}
+ try{
+  const res=await fetch(BASE+'/auth/v1/user',{method:'PUT',headers:{apikey:PUB,Authorization:'Bearer '+recoveryToken,'Content-Type':'application/json'},body:JSON.stringify({password:pass})});
+  const obj=await res.json().catch(()=>({}));
+  if(!res.ok)throw Error(obj.msg||obj.message||obj.error_description||obj.error||'Não foi possível salvar a senha');
+  recoveryToken=null;$('resetDialog').close();alert('Senha cadastrada. Entre pela Área GECART com seu e-mail e sua nova senha.');
+ }catch(err){alert('Erro ao definir senha: '+err.message)}
+};
+handleRecoveryRedirect();
+
 $('cards').textContent='Carregando recursos...';load();
 </script></body></html>
